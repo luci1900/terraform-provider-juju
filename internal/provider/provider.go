@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/list"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -102,7 +103,7 @@ func getEnvVar(field string) types.String {
 }
 
 // Ensure jujuProvider satisfies various provider interfaces.
-var _ provider.Provider = &jujuProvider{}
+var _ provider.ProviderWithListResources = &jujuProvider{}
 
 // NewJujuProvider returns a framework style terraform provider.
 func NewJujuProvider(version string, waitForResources bool) provider.Provider {
@@ -457,4 +458,10 @@ func checkClientErr(err error, config juju.ControllerConfiguration) diag.Diagnos
 	}
 	diags.AddError("Client Error", err.Error())
 	return diags
+}
+
+func (p *jujuProvider) ListResources(_ context.Context) []func() list.ListResource {
+	return []func() list.ListResource{
+		func() list.ListResource { return NewModelLister() },
+	}
 }
