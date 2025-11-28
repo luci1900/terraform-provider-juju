@@ -11,7 +11,7 @@ provider "juju" {
 }
 
 resource "juju_model" "this" {
-  name = "source-model"
+  name = "private-registry-model"
 }
 
 resource "juju_application" "this" {
