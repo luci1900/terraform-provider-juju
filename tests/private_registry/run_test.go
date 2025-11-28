@@ -8,25 +8,17 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
-
-//go:embed main.tf
-var plan string
 
 func TestAcc_PrivateRegistry(t *testing.T) {
 	resource.ParallelTest(t, resource.TestCase{
 		Steps: []resource.TestStep{
 			{
-				ExternalProviders: map[string]resource.ExternalProvider{
-					"juju": {
-						VersionConstraint: "1.0.0",
-						Source:            "juju/juju",
-					},
-				},
-				Config: plan,
-				Check:  check,
+				ConfigDirectory: config.StaticDirectory("."),
+				Check:           check,
 			},
 		},
 	})
