@@ -24,7 +24,7 @@ func TestAcc_PrivateRegistry(t *testing.T) {
 func check(_ *terraform.State) error {
 	cmd := exec.Command(
 		"juju", "wait-for",
-		"application", "temporal",
+		"application", "storage-pool-db",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

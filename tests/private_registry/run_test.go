@@ -1,7 +1,6 @@
 package provider
 
 import (
-	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
