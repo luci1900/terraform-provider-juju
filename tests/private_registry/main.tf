@@ -1,3 +1,6 @@
+# This plan is small enough that it should be moved to the integration tests.
+# It's only here for now as an example of custom assertions.
+
 terraform {
   required_providers {
     juju = {
