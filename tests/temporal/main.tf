@@ -11,7 +11,7 @@ provider "juju" {}
 
 
 resource "juju_model" "prod" {
-  name = "prod"
+  name = "temporal-model"
 }
 
 # application and integration top-level
@@ -99,5 +99,3 @@ resource "juju_integration" "temporal_ui" {
   }
   model_uuid = juju_model.prod.uuid
 }
-
-
