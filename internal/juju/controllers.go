@@ -36,19 +36,23 @@ type ControllerConnectionInformation struct {
 
 // CommandRunner defines the interface for executing juju commands.
 type CommandRunner interface {
-	// SetEnv sets an environment variable for command execution.
-	SetEnv(key, value string)
 	// Run executes a juju command with the configured environment and logging.
 	Run(ctx context.Context, args ...string) error
 	// LogFilePath returns the path to the log file.
 	LogFilePath() string
+	// WorkingDir returns the temporary directory created by the runner.
+	WorkingDir() string
+	// Close cleans up files and env vars.
+	Close() error
 }
 
 // commandRunner manages command execution with environment variables and logging.
 type commandRunner struct {
 	jujuBinary  string
-	logFilePath string
 	envVars     map[string]string
+	logFile     *os.File
+	workingDir  string
+	oldJujuData string
 }
 
 // newCommandRunner creates a new command runner with a log file in a temp directory.
@@ -57,19 +61,29 @@ func newCommandRunner(jujuBinary string) (*commandRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
-	logFilePath := logFile.Name()
-	logFile.Close()
+
+	// Create temporary JUJU_DATA directory
+	tmpDir, err := os.MkdirTemp("", "juju-bootstrap-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temporary JUJU_DATA directory: %w", err)
+	}
+
+	// Set JUJU_DATA environment variable for the running process
+	// so that store related commands use the temporary directory.
+	oldJujuData := osenv.SetJujuXDGDataHome(tmpDir)
+
+	// Also set it for the command runner
+	vars := map[string]string{
+		"JUJU_DATA": tmpDir,
+	}
 
 	return &commandRunner{
 		jujuBinary:  jujuBinary,
-		logFilePath: logFilePath,
-		envVars:     make(map[string]string),
+		logFile:     logFile,
+		workingDir:  tmpDir,
+		oldJujuData: oldJujuData,
+		envVars:     vars,
 	}, nil
-}
-
-// SetEnv sets an environment variable for command execution.
-func (r *commandRunner) SetEnv(key, value string) {
-	r.envVars[key] = value
 }
 
 // Run executes a juju command with the configured environment and logging.
@@ -77,7 +91,7 @@ func (r *commandRunner) Run(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, r.jujuBinary, args...)
 
 	// Open log file in append mode
-	logFile, err := os.OpenFile(r.logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile(r.LogFilePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
@@ -98,15 +112,32 @@ func (r *commandRunner) Run(ctx context.Context, args ...string) error {
 	}
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("command failed (see log file %s): %w", r.logFilePath, err)
+		return fmt.Errorf("command failed (see log file %s): %w", r.LogFilePath(), err)
 	}
 
 	return nil
 }
 
+// Close cleans up files and env vars.
+func (r *commandRunner) Close() error {
+	osenv.SetJujuXDGDataHome(r.oldJujuData)
+	if err := os.RemoveAll(r.workingDir); err != nil {
+		return err
+	}
+	if err := r.logFile.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // LogFilePath returns the path to the log file.
 func (r *commandRunner) LogFilePath() string {
-	return r.logFilePath
+	return r.logFile.Name()
+}
+
+// WorkingDir returns the working directory for the command runner.
+func (r *commandRunner) WorkingDir() string {
+	return r.workingDir
 }
 
 // BootstrapConfig contains all configuration options that can be set during bootstrap.
@@ -198,35 +229,21 @@ func (d *DefaultJujuCommand) Bootstrap(ctx context.Context, args BootstrapArgume
 		}
 	}
 
-	// Create temporary JUJU_DATA directory
-	tmpDir, err := os.MkdirTemp("", "juju-bootstrap-*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary JUJU_DATA directory: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
 	// Create command runner with log file
 	runner, err := newCommandRunner(d.jujuBinary)
+	defer runner.Close()
 	if err != nil {
 		return nil, err
 	}
 
-	// Set JUJU_DATA environment variable for the running process
-	// so that store related commands use the temporary directory.
-	oldJujuData := osenv.SetJujuXDGDataHome(tmpDir)
-	defer osenv.SetJujuXDGDataHome(oldJujuData)
-
-	// Also set it for the command runner
-	runner.SetEnv("JUJU_DATA", tmpDir)
-
 	tflog.SubsystemDebug(ctx, LogJujuCommand, fmt.Sprintf("Bootstrap log file: %s\n", runner.LogFilePath()))
 
-	return performBootstrap(ctx, args, tmpDir, runner)
+	return performBootstrap(ctx, args, runner)
 }
 
 // performBootstrap executes the actual bootstrap logic with the provided command runner.
 // This function is separated to allow for easier testing with a mock command runner.
-func performBootstrap(ctx context.Context, args BootstrapArguments, tmpDir string, runner CommandRunner) (*ControllerConnectionInformation, error) {
+func performBootstrap(ctx context.Context, args BootstrapArguments, runner CommandRunner) (*ControllerConnectionInformation, error) {
 	// Update public clouds - this command will go fetch a list of public clouds
 	// from https://streams.canonical.com/juju/public-clouds.syaml and update
 	// client's local store.
@@ -266,11 +283,10 @@ func performBootstrap(ctx context.Context, args BootstrapArguments, tmpDir strin
 	}
 
 	// Write config file
-	configFilePath, err := writeBootstrapConfigs(tmpDir, args.Config)
+	configFilePath, err := writeBootstrapConfigs(runner.WorkingDir(), args.Config)
 	if err != nil {
 		return nil, err
 	}
-
 	// Build bootstrap command arguments
 	bootstrapArgs, err := buildBootstrapArgs(ctx, args, configFilePath)
 	if err != nil {

@@ -2716,6 +2716,44 @@ func (m *MockCommandRunner) EXPECT() *MockCommandRunnerMockRecorder {
 	return m.recorder
 }
 
+// Close mocks base method.
+func (m *MockCommandRunner) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockCommandRunnerMockRecorder) Close() *MockCommandRunnerCloseCall {
+	mr.mock.ctrl.T.Helper()
+	call := mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockCommandRunner)(nil).Close))
+	return &MockCommandRunnerCloseCall{Call: call}
+}
+
+// MockCommandRunnerCloseCall wrap *gomock.Call
+type MockCommandRunnerCloseCall struct {
+	*gomock.Call
+}
+
+// Return rewrite *gomock.Call.Return
+func (c *MockCommandRunnerCloseCall) Return(arg0 error) *MockCommandRunnerCloseCall {
+	c.Call = c.Call.Return(arg0)
+	return c
+}
+
+// Do rewrite *gomock.Call.Do
+func (c *MockCommandRunnerCloseCall) Do(f func() error) *MockCommandRunnerCloseCall {
+	c.Call = c.Call.Do(f)
+	return c
+}
+
+// DoAndReturn rewrite *gomock.Call.DoAndReturn
+func (c *MockCommandRunnerCloseCall) DoAndReturn(f func() error) *MockCommandRunnerCloseCall {
+	c.Call = c.Call.DoAndReturn(f)
+	return c
+}
+
 // LogFilePath mocks base method.
 func (m *MockCommandRunner) LogFilePath() string {
 	m.ctrl.T.Helper()
@@ -2797,38 +2835,40 @@ func (c *MockCommandRunnerRunCall) DoAndReturn(f func(context.Context, ...string
 	return c
 }
 
-// SetEnv mocks base method.
-func (m *MockCommandRunner) SetEnv(key, value string) {
+// WorkingDir mocks base method.
+func (m *MockCommandRunner) WorkingDir() string {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetEnv", key, value)
+	ret := m.ctrl.Call(m, "WorkingDir")
+	ret0, _ := ret[0].(string)
+	return ret0
 }
 
-// SetEnv indicates an expected call of SetEnv.
-func (mr *MockCommandRunnerMockRecorder) SetEnv(key, value any) *MockCommandRunnerSetEnvCall {
+// WorkingDir indicates an expected call of WorkingDir.
+func (mr *MockCommandRunnerMockRecorder) WorkingDir() *MockCommandRunnerWorkingDirCall {
 	mr.mock.ctrl.T.Helper()
-	call := mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEnv", reflect.TypeOf((*MockCommandRunner)(nil).SetEnv), key, value)
-	return &MockCommandRunnerSetEnvCall{Call: call}
+	call := mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WorkingDir", reflect.TypeOf((*MockCommandRunner)(nil).WorkingDir))
+	return &MockCommandRunnerWorkingDirCall{Call: call}
 }
 
-// MockCommandRunnerSetEnvCall wrap *gomock.Call
-type MockCommandRunnerSetEnvCall struct {
+// MockCommandRunnerWorkingDirCall wrap *gomock.Call
+type MockCommandRunnerWorkingDirCall struct {
 	*gomock.Call
 }
 
 // Return rewrite *gomock.Call.Return
-func (c *MockCommandRunnerSetEnvCall) Return() *MockCommandRunnerSetEnvCall {
-	c.Call = c.Call.Return()
+func (c *MockCommandRunnerWorkingDirCall) Return(arg0 string) *MockCommandRunnerWorkingDirCall {
+	c.Call = c.Call.Return(arg0)
 	return c
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockCommandRunnerSetEnvCall) Do(f func(string, string)) *MockCommandRunnerSetEnvCall {
+func (c *MockCommandRunnerWorkingDirCall) Do(f func() string) *MockCommandRunnerWorkingDirCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockCommandRunnerSetEnvCall) DoAndReturn(f func(string, string)) *MockCommandRunnerSetEnvCall {
+func (c *MockCommandRunnerWorkingDirCall) DoAndReturn(f func() string) *MockCommandRunnerWorkingDirCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
