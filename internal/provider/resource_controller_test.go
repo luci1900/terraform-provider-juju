@@ -83,10 +83,11 @@ func TestAcc_ResourceController(t *testing.T) {
 			BootstrapBase: "test-base",
 		},
 	}).Return(&juju.ControllerConnectionInformation{
-		Addresses: []string{"127.0.0.1:17070"},
-		CACert:    "test controller CA cert",
-		Username:  "admin",
-		Password:  "password",
+		Addresses:    []string{"127.0.0.1:17070"},
+		CACert:       "test controller CA cert",
+		Username:     "admin",
+		Password:     "password",
+		AgentVersion: "3.6.12",
 	}, nil).AnyTimes()
 
 	mockJujuCommand.EXPECT().Config(
@@ -108,11 +109,18 @@ func TestAcc_ResourceController(t *testing.T) {
 
 	mockJujuCommand.EXPECT().Destroy(
 		gomock.Any(),
-		&juju.ControllerConnectionInformation{
-			Addresses: []string{"127.0.0.1:17070"},
-			CACert:    "test controller CA cert",
-			Username:  "admin",
-			Password:  "password",
+		juju.DestroyArguments{
+			Name:        controllerName,
+			JujuBinary:  "/snap/bin/juju",
+			CloudName:   testingCloud.CloudName(),
+			CloudRegion: "local",
+			ConnectionInfo: juju.ControllerConnectionInformation{
+				Addresses:    []string{"127.0.0.1:17070"},
+				CACert:       "test controller CA cert",
+				Username:     "admin",
+				Password:     "password",
+				AgentVersion: "3.6.12",
+			},
 		},
 	).Return(nil).AnyTimes()
 

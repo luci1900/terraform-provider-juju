@@ -243,6 +243,7 @@ func simulateBootstrapSuccess(controllerName, jujuData string) func(ctx context.
   %s:
     uuid: test-uuid-12345
     api-endpoints: ["127.0.0.1:17070"]
+    agent-version: 3.6.0
     ca-cert: |
       -----BEGIN CERTIFICATE-----
       TESTCACERT
@@ -332,6 +333,64 @@ func TestPerformBootstrap(t *testing.T) {
 	assert.Contains(t, result.CACert, "TESTCACERT")
 	assert.Equal(t, "admin", result.Username)
 	assert.Equal(t, "test-password-12345", result.Password)
+	assert.Equal(t, "3.6.0", result.AgentVersion)
+}
+
+func TestPerformDestroy(t *testing.T) {
+	// Create a temporary directory for the test
+	tmpDir, err := os.MkdirTemp("", "juju-test-*")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Set JUJU_DATA for the test
+	oldJujuData := osenv.SetJujuXDGDataHome(tmpDir)
+	defer func() {
+		osenv.SetJujuXDGDataHome(oldJujuData)
+	}()
+
+	// Create mock command runner
+	ctlr := gomock.NewController(t)
+	defer ctlr.Finish()
+	mockRunner := NewMockCommandRunner(ctlr)
+
+	mockRunner.EXPECT().WorkingDir().Return(tmpDir).Times(1)
+
+	mockRunner.EXPECT().Run(
+		gomock.Any(),
+		"destroy-controller",
+		"--no-prompt",
+		"--destroy-all-models",
+		"--force",
+		"--model-timeout=2",
+		"test-controller",
+	).Return(nil).Times(1)
+
+	// Prepare destroy arguments
+	destroyArgs := DestroyArguments{
+		Name:        "test-controller",
+		CloudName:   "test-cloud",
+		CloudRegion: "region1",
+		ConnectionInfo: ControllerConnectionInformation{
+			Addresses:      []string{"127.0.0.1:17070"},
+			CACert:         "test-ca-cert",
+			Username:       "admin",
+			Password:       "test-password",
+			AgentVersion:   "3.6.0",
+			ControllerUUID: "b6951ccd-4492-4ae7-ae15-655f0a8548c3",
+		},
+		Flags: DestroyFlags{
+			Force:            true,
+			DestroyAllModels: true,
+			ModelTimeout:     2,
+		},
+	}
+
+	// Run performDestroy
+	ctx := context.Background()
+	err = performDestroy(ctx, destroyArgs, mockRunner)
+
+	// Verify no error
+	assert.NoError(t, err)
 }
 
 func TestConcurrentSafeFileStore(t *testing.T) {
