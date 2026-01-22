@@ -30,6 +30,7 @@ import (
 	model "github.com/juju/juju/core/model"
 	resources0 "github.com/juju/juju/core/resources"
 	secrets0 "github.com/juju/juju/core/secrets"
+	jujuclient "github.com/juju/juju/jujuclient"
 	params0 "github.com/juju/juju/rpc/params"
 	names "github.com/juju/names/v5"
 	gomock "go.uber.org/mock/gomock"
@@ -2714,6 +2715,45 @@ func NewMockCommandRunner(ctrl *gomock.Controller) *MockCommandRunner {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockCommandRunner) EXPECT() *MockCommandRunnerMockRecorder {
 	return m.recorder
+}
+
+// ClientStore mocks base method.
+func (m *MockCommandRunner) ClientStore() (jujuclient.ClientStore, func()) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClientStore")
+	ret0, _ := ret[0].(jujuclient.ClientStore)
+	ret1, _ := ret[1].(func())
+	return ret0, ret1
+}
+
+// ClientStore indicates an expected call of ClientStore.
+func (mr *MockCommandRunnerMockRecorder) ClientStore() *MockCommandRunnerClientStoreCall {
+	mr.mock.ctrl.T.Helper()
+	call := mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClientStore", reflect.TypeOf((*MockCommandRunner)(nil).ClientStore))
+	return &MockCommandRunnerClientStoreCall{Call: call}
+}
+
+// MockCommandRunnerClientStoreCall wrap *gomock.Call
+type MockCommandRunnerClientStoreCall struct {
+	*gomock.Call
+}
+
+// Return rewrite *gomock.Call.Return
+func (c *MockCommandRunnerClientStoreCall) Return(arg0 jujuclient.ClientStore, arg1 func()) *MockCommandRunnerClientStoreCall {
+	c.Call = c.Call.Return(arg0, arg1)
+	return c
+}
+
+// Do rewrite *gomock.Call.Do
+func (c *MockCommandRunnerClientStoreCall) Do(f func() (jujuclient.ClientStore, func())) *MockCommandRunnerClientStoreCall {
+	c.Call = c.Call.Do(f)
+	return c
+}
+
+// DoAndReturn rewrite *gomock.Call.DoAndReturn
+func (c *MockCommandRunnerClientStoreCall) DoAndReturn(f func() (jujuclient.ClientStore, func())) *MockCommandRunnerClientStoreCall {
+	c.Call = c.Call.DoAndReturn(f)
+	return c
 }
 
 // Close mocks base method.

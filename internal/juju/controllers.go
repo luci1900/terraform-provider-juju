@@ -42,6 +42,8 @@ type CommandRunner interface {
 	LogFilePath() string
 	// WorkingDir returns the temporary directory created by the runner.
 	WorkingDir() string
+	// ClientStore returns the juju client store used by the command runner.
+	ClientStore() (jujuclient.ClientStore, func())
 	// Close cleans up files and env vars.
 	Close() error
 }
@@ -50,9 +52,9 @@ type CommandRunner interface {
 type commandRunner struct {
 	jujuBinary  string
 	envVars     map[string]string
-	logFile     *os.File
+	logFile     string
 	workingDir  string
-	oldJujuData string
+	clientStore jujuclient.ClientStore
 }
 
 // newCommandRunner creates a new command runner with a log file in a temp directory.
@@ -68,22 +70,22 @@ func newCommandRunner(jujuBinary string) (*commandRunner, error) {
 		return nil, fmt.Errorf("failed to create temporary JUJU_DATA directory: %w", err)
 	}
 
-	// Set JUJU_DATA environment variable for the running process
-	// so that store related commands use the temporary directory.
-	oldJujuData := osenv.SetJujuXDGDataHome(tmpDir)
-
-	// Also set it for the command runner
-	vars := map[string]string{
-		"JUJU_DATA": tmpDir,
-	}
-
 	return &commandRunner{
-		jujuBinary:  jujuBinary,
-		logFile:     logFile,
-		workingDir:  tmpDir,
-		oldJujuData: oldJujuData,
-		envVars:     vars,
+		jujuBinary: jujuBinary,
+		logFile:    logFile.Name(),
+		workingDir: tmpDir,
+		envVars: map[string]string{
+			"JUJU_DATA": tmpDir,
+		}, clientStore: jujuclient.NewFileClientStore(),
 	}, nil
+}
+
+// Close cleans up files and env vars.
+func (r *commandRunner) Close() error {
+	if err := os.RemoveAll(r.workingDir); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Run executes a juju command with the configured environment and logging.
@@ -91,7 +93,7 @@ func (r *commandRunner) Run(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, r.jujuBinary, args...)
 
 	// Open log file in append mode
-	logFile, err := os.OpenFile(r.LogFilePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile(r.logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
@@ -118,26 +120,28 @@ func (r *commandRunner) Run(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// Close cleans up files and env vars.
-func (r *commandRunner) Close() error {
-	osenv.SetJujuXDGDataHome(r.oldJujuData)
-	if err := os.RemoveAll(r.workingDir); err != nil {
-		return err
-	}
-	if err := r.logFile.Close(); err != nil {
-		return err
-	}
-	return nil
-}
-
 // LogFilePath returns the path to the log file.
 func (r *commandRunner) LogFilePath() string {
-	return r.logFile.Name()
+	return r.logFile
 }
 
 // WorkingDir returns the working directory for the command runner.
 func (r *commandRunner) WorkingDir() string {
 	return r.workingDir
+}
+
+// Store returns the client store to be used with this command runner.
+// The caller must call the returned release function, ideally in a defer.
+func (r *commandRunner) ClientStore() (jujuclient.ClientStore, func()) {
+	// Set Juju data home for a limited period of using the filestore.
+	// This is necessary because internallly, all store methods look up
+	// a global set with osenv.
+	// TODO (luci1900): add locking around this if Juju cli bootstraps can
+	// run in parallel.
+	oldJujuData := osenv.SetJujuXDGDataHome(r.workingDir)
+	return r.clientStore, func() {
+		osenv.SetJujuXDGDataHome(oldJujuData)
+	}
 }
 
 // BootstrapConfig contains all configuration options that can be set during bootstrap.
@@ -231,10 +235,10 @@ func (d *DefaultJujuCommand) Bootstrap(ctx context.Context, args BootstrapArgume
 
 	// Create command runner with log file
 	runner, err := newCommandRunner(d.jujuBinary)
-	defer runner.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer runner.Close()
 
 	tflog.SubsystemDebug(ctx, LogJujuCommand, fmt.Sprintf("Bootstrap log file: %s\n", runner.LogFilePath()))
 
@@ -244,42 +248,9 @@ func (d *DefaultJujuCommand) Bootstrap(ctx context.Context, args BootstrapArgume
 // performBootstrap executes the actual bootstrap logic with the provided command runner.
 // This function is separated to allow for easier testing with a mock command runner.
 func performBootstrap(ctx context.Context, args BootstrapArguments, runner CommandRunner) (*ControllerConnectionInformation, error) {
-	// Update public clouds - this command will go fetch a list of public clouds
-	// from https://streams.canonical.com/juju/public-clouds.syaml and update
-	// client's local store.
-	if err := runner.Run(ctx, "update-public-clouds", "--client"); err != nil {
-		return nil, fmt.Errorf("failed to update public clouds: %w", err)
-	}
-
-	// Setup cloud
-	cloudName := args.Cloud.Name
-	isPublicCloud, err := isValidPublicCloud(args)
+	err := setupCloudWithCredentials(ctx, runner, args.Cloud, args.CloudCredential)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate cloud: %w", err)
-	}
-
-	// If a cloud is not known to Juju i.e. clouds besides AWS, Azure, GCP, etc.,
-	// then we need to create a cloud entry on disk with information on how
-	// to reach the cloud, its regions, etc.
-	if !isPublicCloud {
-		// Create personal cloud
-		cloud := buildJujuCloud(args.Cloud)
-		if err := jujucloud.WritePersonalCloudMetadata(map[string]jujucloud.Cloud{
-			cloudName: cloud,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to write personal cloud metadata: %w", err)
-		}
-	}
-
-	// Setup credentials
-	store := jujuclient.NewFileClientStore()
-	cloudCred := jujucloud.CloudCredential{
-		AuthCredentials: map[string]jujucloud.Credential{
-			cloudName: buildJujuCredential(args.CloudCredential),
-		},
-	}
-	if err := store.UpdateCredential(cloudName, cloudCred); err != nil {
-		return nil, fmt.Errorf("failed to update credential: %w", err)
+		return nil, fmt.Errorf("failed to setup cloud and credentials: %w", err)
 	}
 
 	// Write config file
@@ -288,15 +259,19 @@ func performBootstrap(ctx context.Context, args BootstrapArguments, runner Comma
 		return nil, err
 	}
 	// Build bootstrap command arguments
-	bootstrapArgs, err := buildBootstrapArgs(ctx, args, configFilePath)
+	cmdArgs, err := buildBootstrapArgs(ctx, args, configFilePath)
 	if err != nil {
 		return nil, err
 	}
 
 	// Execute bootstrap command
-	if err := runner.Run(ctx, bootstrapArgs...); err != nil {
+	if err := runner.Run(ctx, cmdArgs...); err != nil {
 		return nil, fmt.Errorf("bootstrap failed: %w", err)
 	}
+
+	// Client store to read controller information after bootstrap
+	store, close := runner.ClientStore()
+	defer close()
 
 	// Read controller information from the client store
 	controllerDetails, err := store.ControllerByName(args.Name)
@@ -453,9 +428,31 @@ func writeBootstrapConfigs(workDir string, config BootstrapConfig) (string, erro
 func buildBootstrapArgs(ctx context.Context, args BootstrapArguments, configFilePath string) ([]string, error) {
 	cmdArgs := []string{"bootstrap"}
 
+	cmdArgs = append(cmdArgs, buildArgsFromFlags(ctx, args.Flags)...)
+
+	// Add config file if it exists
+	if configFilePath != "" {
+		cmdArgs = append(cmdArgs, "--config", configFilePath)
+	}
+
+	cloudRegion := args.Cloud.Name
+	if args.Cloud.Region != nil {
+		cloudRegion = fmt.Sprintf("%s/%s", args.Cloud.Name, args.Cloud.Region.Name)
+	}
+
+	// Add cloud name and controller name (must be at the end)
+	cmdArgs = append(cmdArgs, cloudRegion, args.Name)
+
+	return cmdArgs, nil
+}
+
+// buildArgsFromFlags builds command line arguments from the provided flags-like struct using reflection.
+func buildArgsFromFlags(ctx context.Context, flags any) []string {
+	var cmdArgs []string
+
 	// Add flags using reflection
-	flagsValue := reflect.ValueOf(args.Flags)
-	flagsType := reflect.TypeOf(args.Flags)
+	flagsValue := reflect.ValueOf(flags)
+	flagsType := reflect.TypeOf(flags)
 
 	for i := 0; i < flagsType.NumField(); i++ {
 		field := flagsType.Field(i)
@@ -490,20 +487,7 @@ func buildBootstrapArgs(ctx context.Context, args BootstrapArguments, configFile
 		}
 	}
 
-	// Add config file if it exists
-	if configFilePath != "" {
-		cmdArgs = append(cmdArgs, "--config", configFilePath)
-	}
-
-	cloudRegion := args.Cloud.Name
-	if args.Cloud.Region != nil {
-		cloudRegion = fmt.Sprintf("%s/%s", args.Cloud.Name, args.Cloud.Region.Name)
-	}
-
-	// Add cloud name and controller name (must be at the end)
-	cmdArgs = append(cmdArgs, cloudRegion, args.Name)
-
-	return cmdArgs, nil
+	return cmdArgs
 }
 
 // buildJujuCloud constructs a jujucloud.Cloud from BootstrapCloudArgument.
@@ -553,21 +537,21 @@ func convertToCloudAuthTypes(authTypes []string) []jujucloud.AuthType {
 }
 
 // isValidPublicCloud checks if the cloud name (and possibly region) is a valid public cloud.
-func isValidPublicCloud(args BootstrapArguments) (bool, error) {
+func isValidPublicCloud(arg BootstrapCloudArgument) (bool, error) {
 	pubClouds, _, err := jujucloud.PublicCloudMetadata(jujucloud.JujuPublicCloudsPath())
 	if err != nil {
 		return false, fmt.Errorf("failed to get public cloud metadata: %w", err)
 	}
 
 	for pubCloudName, cloud := range pubClouds {
-		if args.Cloud.Name == pubCloudName {
-			if args.Cloud.Region != nil {
-				regionName := args.Cloud.Region.Name
+		if arg.Name == pubCloudName {
+			if arg.Region != nil {
+				regionName := arg.Region.Name
 				exists := slices.ContainsFunc(cloud.Regions, func(r jujucloud.Region) bool {
 					return regionName == r.Name
 				})
 				if !exists {
-					return false, fmt.Errorf("invalid public cloud region for cloud %s with region %s", args.Cloud.Name, regionName)
+					return false, fmt.Errorf("invalid public cloud region for cloud %s with region %s", arg.Name, regionName)
 				}
 			}
 			return true, nil

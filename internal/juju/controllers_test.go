@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/juju/juju/juju/osenv"
+	"github.com/juju/juju/jujuclient"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
@@ -283,6 +284,7 @@ func TestPerformBootstrap(t *testing.T) {
 
 	mockRunner.EXPECT().WorkingDir().AnyTimes().Return(tmpDir)
 	mockRunner.EXPECT().Close().AnyTimes().Return(nil)
+	mockRunner.EXPECT().ClientStore().AnyTimes().Return(jujuclient.NewFileClientStore(), func() {})
 
 	mockRunner.EXPECT().Run(gomock.Any(), "update-public-clouds", "--client").Times(1)
 	mockRunner.EXPECT().Run(
