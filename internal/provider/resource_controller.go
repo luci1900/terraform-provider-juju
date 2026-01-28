@@ -398,7 +398,6 @@ func (r *controllerResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Additional flags for destroying the controller.",
 				Optional:    true,
 				PlanModifiers: []planmodifier.Object{
-					objectplanmodifier.RequiresReplace(),
 					objectplanmodifier.UseStateForUnknown(),
 				},
 				Attributes: map[string]schema.Attribute{

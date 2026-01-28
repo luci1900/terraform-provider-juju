@@ -207,6 +207,7 @@ type BootstrapCredentialArgument struct {
 	Attributes map[string]string
 }
 
+// DestroyFlags contains usable CLI flags for juju destroy-controller
 type DestroyFlags struct {
 	DestroyAllModels bool `flag:"destroy-all-models"`
 	DestroyStorage   bool `flag:"destroy-storage"`
@@ -215,6 +216,7 @@ type DestroyFlags struct {
 	ModelTimeout     int  `flag:"model-timeout"`
 }
 
+// DestroyArguments contains all info needed for destroying a controller.
 type DestroyArguments struct {
 	Name           string
 	JujuBinary     string
