@@ -61,13 +61,13 @@ type controllerResourceModel struct {
 	StoragePool          types.Object `tfsdk:"storage_pool"`
 
 	// Config that can be set at bootstrap
-	BootstrapConfig       types.Map    `tfsdk:"bootstrap_config"`
-	ControllerConfig      types.Map    `tfsdk:"controller_config"`
-	ControllerModelConfig types.Map    `tfsdk:"controller_model_config"`
-	ControllerUUID        types.String `tfsdk:"controller_uuid"`
+	BootstrapConfig       types.Map `tfsdk:"bootstrap_config"`
+	ControllerConfig      types.Map `tfsdk:"controller_config"`
+	ControllerModelConfig types.Map `tfsdk:"controller_model_config"`
 
-	// Flags for destroy command
-	DestroyFlags types.Object `tfsdk:"destroy_flags"`
+	// Fields for destroy command
+	ControllerUUID types.String `tfsdk:"controller_uuid"`
+	DestroyFlags   types.Object `tfsdk:"destroy_flags"`
 
 	// Controller details
 	APIAddresses types.List   `tfsdk:"api_addresses"`
