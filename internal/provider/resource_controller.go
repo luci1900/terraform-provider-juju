@@ -862,10 +862,19 @@ func (r *controllerResource) Delete(ctx context.Context, req resource.DeleteRequ
 
 	err = command.Destroy(ctx, args)
 	if err != nil {
-		resp.Diagnostics.AddError(
-			"Controller Deletion Error",
-			fmt.Sprintf("Unable to destroy controller %q, got error: %s", state.Name.ValueString(), err),
-		)
+		errSummary := "Controller Deletion Error"
+		errDetail := fmt.Sprintf("Unable to destroy controller %q, got error: %s", state.Name.ValueString(), err)
+		if r.config.SkipFailedDeletion {
+			resp.Diagnostics.AddWarning(
+				errSummary,
+				errDetail+"There might be dangling resources requiring manual intervion.\n",
+			)
+		} else {
+			resp.Diagnostics.AddError(
+				errSummary,
+				errDetail,
+			)
+		}
 		return
 	}
 }
