@@ -43,6 +43,10 @@ type actionDataSourceModel struct {
 	// Output is the output of the action as a JSON string. The consumer
 	// can use jsondecode() to extract values from it.
 	Output types.String `tfsdk:"output"`
+	// OutputMap is the output of the action as a dynamic map, mirroring the
+	// structure returned by Juju. Nested values are preserved, so consumers
+	// can index into it directly without calling jsondecode().
+	OutputMap types.Dynamic `tfsdk:"output_map"`
 	// ID required by the testing framework.
 	ID types.String `tfsdk:"id"`
 }
@@ -71,6 +75,10 @@ func (d *actionDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 			},
 			"output": schema.StringAttribute{
 				Description: "The output of the action as a JSON string. Use jsondecode() to extract values from it.",
+				Computed:    true,
+			},
+			"output_map": schema.DynamicAttribute{
+				Description: "The output of the action as a dynamic map, mirroring the structure returned by Juju. Nested values are preserved, so it can be indexed directly.",
 				Computed:    true,
 			},
 			// ID required by the testing framework.
@@ -132,6 +140,11 @@ func (d *actionDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	data.Output, err = actionResultToOutput(actionResult)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to convert action output: %s", err))
+		return
+	}
+	data.OutputMap, err = actionResultToOutputMap(ctx, actionResult)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to convert action output map: %s", err))
 		return
 	}
 

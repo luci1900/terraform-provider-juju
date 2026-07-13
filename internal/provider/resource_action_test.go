@@ -39,6 +39,9 @@ func TestAcc_ResourceAction(t *testing.T) {
 					resource.TestCheckResourceAttr("juju_action.this", "action_name", actionName),
 					resource.TestCheckResourceAttrSet("juju_action.this", "action_id"),
 					resource.TestMatchResourceAttr("juju_action.this", "output", regexp.MustCompile(`"echo":\{"value":"ciao"\}`)),
+					// output_map preserves the nested structure returned by
+					// Juju and can be indexed directly.
+					resource.TestCheckResourceAttr("juju_action.this", "output_map.echo.value", "ciao"),
 				),
 			},
 			{
@@ -48,6 +51,7 @@ func TestAcc_ResourceAction(t *testing.T) {
 					resource.TestCheckResourceAttr("juju_action.this", "unit", "test-app/0"),
 					resource.TestCheckResourceAttrSet("juju_action.this", "action_id"),
 					resource.TestMatchResourceAttr("juju_action.this", "output", regexp.MustCompile(`"echo":\{"value":"ciao"\}`)),
+					resource.TestCheckResourceAttr("juju_action.this", "output_map.echo.value", "ciao"),
 				),
 			},
 			{
@@ -56,6 +60,7 @@ func TestAcc_ResourceAction(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("juju_action.this", "action_id"),
 					resource.TestMatchResourceAttr("juju_action.this", "output", regexp.MustCompile(`"echo":\{"value":"world"\}`)),
+					resource.TestCheckResourceAttr("juju_action.this", "output_map.echo.value", "world"),
 				),
 			},
 			{

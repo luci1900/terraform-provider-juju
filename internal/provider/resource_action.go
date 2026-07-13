@@ -4,10 +4,12 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -15,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/juju/juju/api/client/action"
 	"github.com/juju/juju/rpc/params"
@@ -57,6 +60,10 @@ type actionResourceModel struct {
 	// Output is the output of the action as a JSON string. The consumer
 	// can use jsondecode() to extract values from it.
 	Output types.String `tfsdk:"output"`
+	// OutputMap is the output of the action as a dynamic map, mirroring the
+	// structure returned by Juju. Nested values are preserved, so consumers
+	// can index into it directly without calling jsondecode().
+	OutputMap types.Dynamic `tfsdk:"output_map"`
 	// ID required by the testing framework.
 	ID types.String `tfsdk:"id"`
 }
@@ -117,6 +124,10 @@ func (r *actionResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"output": schema.StringAttribute{
 				Description: "The output of the action as a JSON string. Use jsondecode() to extract values from it.",
+				Computed:    true,
+			},
+			"output_map": schema.DynamicAttribute{
+				Description: "The output of the action as a dynamic map, mirroring the structure returned by Juju. Nested values are preserved, so it can be indexed directly.",
 				Computed:    true,
 			},
 			"id": schema.StringAttribute{
@@ -240,6 +251,11 @@ func (r *actionResource) Create(ctx context.Context, req resource.CreateRequest,
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to convert action output: %s", err))
 		return
 	}
+	plan.OutputMap, err = actionResultToOutputMap(ctx, actionResult)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to convert action output map: %s", err))
+		return
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -269,6 +285,11 @@ func (r *actionResource) Read(ctx context.Context, req resource.ReadRequest, res
 		state.Output, err = actionResultToOutput(actionResult)
 		if err != nil {
 			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to convert action output: %s", err))
+			return
+		}
+		state.OutputMap, err = actionResultToOutputMap(ctx, actionResult)
+		if err != nil {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to convert action output map: %s", err))
 			return
 		}
 	}
@@ -373,6 +394,112 @@ func actionResultToOutput(actionResult action.ActionResult) (types.String, error
 		return types.StringNull(), fmt.Errorf("unable to marshal action output: %w", err)
 	}
 	return types.StringValue(string(b)), nil
+}
+
+// actionResultToOutputMap converts an action result's output into a dynamic
+// value that mirrors the structure returned by Juju. Nested maps, lists and
+// scalars are preserved, so consumers can index into the value directly.
+func actionResultToOutputMap(ctx context.Context, actionResult action.ActionResult) (types.Dynamic, error) {
+	if len(actionResult.Output) == 0 {
+		return types.DynamicNull(), nil
+	}
+	// Round-trip through JSON so that all values are normalised to the set
+	// of types understood by goValueToTerraform (map, slice, string, bool
+	// and json.Number).
+	b, err := json.Marshal(actionResult.Output)
+	if err != nil {
+		return types.DynamicNull(), fmt.Errorf("unable to marshal action output: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var decoded any
+	if err := dec.Decode(&decoded); err != nil {
+		return types.DynamicNull(), fmt.Errorf("unable to decode action output: %w", err)
+	}
+
+	tfType := goValueToTerraformType(decoded)
+	tfValue, err := goValueToTerraform(decoded)
+	if err != nil {
+		return types.DynamicNull(), err
+	}
+	attrValue, err := types.DynamicType.ValueFromTerraform(ctx, tftypes.NewValue(tfType, tfValue))
+	if err != nil {
+		return types.DynamicNull(), fmt.Errorf("unable to build dynamic action output: %w", err)
+	}
+	dynamic, ok := attrValue.(types.Dynamic)
+	if !ok {
+		return types.DynamicNull(), fmt.Errorf("unexpected action output value type %T", attrValue)
+	}
+	return dynamic, nil
+}
+
+// goValueToTerraformType returns the tftypes.Type describing the given Go
+// value, which must be one of the types produced by encoding/json with
+// UseNumber: map[string]any, []any, string, bool, json.Number or nil.
+func goValueToTerraformType(v any) tftypes.Type {
+	switch val := v.(type) {
+	case map[string]any:
+		attrTypes := make(map[string]tftypes.Type, len(val))
+		for k, elem := range val {
+			attrTypes[k] = goValueToTerraformType(elem)
+		}
+		return tftypes.Object{AttributeTypes: attrTypes}
+	case []any:
+		elemTypes := make([]tftypes.Type, len(val))
+		for i, elem := range val {
+			elemTypes[i] = goValueToTerraformType(elem)
+		}
+		return tftypes.Tuple{ElementTypes: elemTypes}
+	case bool:
+		return tftypes.Bool
+	case json.Number:
+		return tftypes.Number
+	case string:
+		return tftypes.String
+	default:
+		return tftypes.DynamicPseudoType
+	}
+}
+
+// goValueToTerraform converts a Go value produced by encoding/json with
+// UseNumber into the corresponding tftypes representation.
+func goValueToTerraform(v any) (any, error) {
+	switch val := v.(type) {
+	case map[string]any:
+		out := make(map[string]tftypes.Value, len(val))
+		for k, elem := range val {
+			tfElem, err := goValueToTerraform(elem)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = tftypes.NewValue(goValueToTerraformType(elem), tfElem)
+		}
+		return out, nil
+	case []any:
+		out := make([]tftypes.Value, len(val))
+		for i, elem := range val {
+			tfElem, err := goValueToTerraform(elem)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = tftypes.NewValue(goValueToTerraformType(elem), tfElem)
+		}
+		return out, nil
+	case bool:
+		return val, nil
+	case json.Number:
+		f, ok := new(big.Float).SetString(val.String())
+		if !ok {
+			return nil, fmt.Errorf("unable to parse number %q in action output", val.String())
+		}
+		return f, nil
+	case string:
+		return val, nil
+	case nil:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unsupported action output value type %T", v)
+	}
 }
 
 // newActionResourceID builds the resource ID from its components.

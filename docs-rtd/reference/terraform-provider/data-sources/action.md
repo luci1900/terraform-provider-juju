@@ -37,3 +37,4 @@ locals {
 
 - `id` (String) The ID of this resource.
 - `output` (String) The output of the action as a JSON string. Use jsondecode() to extract values from it.
+- `output_map` (Dynamic) The output of the action as a dynamic map, mirroring the structure returned by Juju. Nested values are preserved, so it can be indexed directly.

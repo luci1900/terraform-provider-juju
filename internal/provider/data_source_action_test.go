@@ -18,9 +18,13 @@ import (
 func TestAcc_DataSourceAction(t *testing.T) {
 	modelName := acctest.RandomWithPrefix("tf-test-action-ds")
 
-	// Pick the charm and action depending on the cloud.
+	// Pick the charm and action depending on the cloud. outputMapKey is a
+	// nested leaf within the action's output_map that is stable across
+	// runs, used to assert that output_map preserves the structure Juju
+	// returns and that the data source and resource parse it identically.
 	charmName := "juju-qa-test"
 	actionName := "fortune"
+	outputMapKey := "output_map.fortune"
 	trust := false
 	// juju-qa-test's latest/stable does not support ubuntu@22.04, so let
 	// juju resolve the base automatically.
@@ -28,6 +32,7 @@ func TestAcc_DataSourceAction(t *testing.T) {
 	if testingCloud == MicroK8sTesting {
 		charmName = "traefik-k8s"
 		actionName = "show-proxied-endpoints"
+		outputMapKey = "output_map.proxied-endpoints"
 		trust = true
 		base = ""
 	}
@@ -49,6 +54,10 @@ func TestAcc_DataSourceAction(t *testing.T) {
 					resource.TestCheckResourceAttrSet("data.juju_action.this", "output"),
 					// The data source's output matches the resource's.
 					resource.TestCheckResourceAttrPair("data.juju_action.this", "output", "juju_action.this", "output"),
+					// output_map is fetched and preserves the nested
+					// structure returned by Juju, matching the resource's.
+					resource.TestCheckResourceAttrSet("data.juju_action.this", outputMapKey),
+					resource.TestCheckResourceAttrPair("data.juju_action.this", outputMapKey, "juju_action.this", outputMapKey),
 					resource.TestCheckResourceAttrSet("data.juju_action.this", "id"),
 				),
 			},
